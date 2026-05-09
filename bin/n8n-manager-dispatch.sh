@@ -332,52 +332,82 @@ EPORT=$(echo "$ENTRY" | jq -r '.port // 22')
 EUSER=$(echo "$ENTRY" | jq -r '.user // "agent"')
 
 REPO_FULL=$(echo "$ARGS" | jq -r '"\(.repoOwner)/\(.repoName)"')
+REPO_SLUG="${REPO_FULL//\//__}"
 PROMPT_B64=$(echo "$ARGS" | jq -r '.promptB64 // ""')
 
+# Per-branch flock so two webhooks targeting the same employee + same
+# branch queue rather than race on the worktree. Lock keys are namespaced
+# by repo slug so unrelated repos on the same employee stay independent.
+# Conversational reply surfaces have no branch and serialize on a single
+# per-repo "workspace" key (they all share the primary workspace cwd
+# that gets `git reset --hard`'d after each run). See bin/n8n-agent-lock.
 build_remote_cmd() {
   local surface="$1"
+  local issue pr branch target lock_key
   case "$surface" in
     issue-action)
-      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\ngit fetch origin main >/dev/null 2>&1\ngit checkout -f -B main origin/main >/dev/null 2>&1\nexec n8n-agent-issue %q %q %q\n' \
+      issue=$(echo "$ARGS" | jq -r '.issueNumber')
+      lock_key="${REPO_SLUG}__agent/issue-${issue}"
+      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\ngit fetch origin main >/dev/null 2>&1\ngit checkout -f -B main origin/main >/dev/null 2>&1\nexec n8n-agent-lock %q n8n-agent-issue %q %q %q\n' \
         "$REPO_FULL" \
-        "$(echo "$ARGS" | jq -r '.issueNumber')" \
+        "$lock_key" \
+        "$issue" \
         "$PROMPT_B64" \
         "$(echo "$ARGS" | jq -r '.reviewerLogin // ""')"
       ;;
     pr-address)
-      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-address %q %q %q %q\n' \
+      pr=$(echo "$ARGS" | jq -r '.prNumber')
+      branch=$(echo "$ARGS" | jq -r '.branch')
+      lock_key="${REPO_SLUG}__${branch}"
+      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-lock %q n8n-agent-address %q %q %q %q\n' \
         "$REPO_FULL" \
-        "$(echo "$ARGS" | jq -r '.prNumber')" \
-        "$(echo "$ARGS" | jq -r '.branch')" \
+        "$lock_key" \
+        "$pr" \
+        "$branch" \
         "$(echo "$ARGS" | jq -r '.commentId')" \
         "$PROMPT_B64"
       ;;
     pr-review-requested)
-      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-review %q %q %q %q\n' \
+      pr=$(echo "$ARGS" | jq -r '.prNumber')
+      lock_key="${REPO_SLUG}__pr-${pr}-review"
+      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-lock %q n8n-agent-review %q %q %q %q\n' \
         "$REPO_FULL" \
-        "$(echo "$ARGS" | jq -r '.prNumber')" \
+        "$lock_key" \
+        "$pr" \
         "$(echo "$ARGS" | jq -r '.prBaseRef')" \
         "$(echo "$ARGS" | jq -r '.prHeadSha')" \
         "$PROMPT_B64"
       ;;
     issue-body)
-      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-reply issue %q %q\n' \
-        "$REPO_FULL" "$PROMPT_B64" \
+      lock_key="${REPO_SLUG}__workspace"
+      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-lock %q n8n-agent-reply issue %q %q\n' \
+        "$REPO_FULL" \
+        "$lock_key" \
+        "$PROMPT_B64" \
         "$(echo "$ARGS" | jq -r '.issueNumber')"
       ;;
     pr-body|pr-review)
-      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-reply pr %q %q\n' \
-        "$REPO_FULL" "$PROMPT_B64" \
+      lock_key="${REPO_SLUG}__workspace"
+      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-lock %q n8n-agent-reply pr %q %q\n' \
+        "$REPO_FULL" \
+        "$lock_key" \
+        "$PROMPT_B64" \
         "$(echo "$ARGS" | jq -r '.prNumber')"
       ;;
     discussion)
-      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-reply discussion %q %q\n' \
-        "$REPO_FULL" "$PROMPT_B64" \
+      lock_key="${REPO_SLUG}__workspace"
+      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-lock %q n8n-agent-reply discussion %q %q\n' \
+        "$REPO_FULL" \
+        "$lock_key" \
+        "$PROMPT_B64" \
         "$(echo "$ARGS" | jq -r '.discussionNodeId')"
       ;;
     discussion-comment)
-      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-reply discussion-reply %q %q %q\n' \
-        "$REPO_FULL" "$PROMPT_B64" \
+      lock_key="${REPO_SLUG}__workspace"
+      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-lock %q n8n-agent-reply discussion-reply %q %q %q\n' \
+        "$REPO_FULL" \
+        "$lock_key" \
+        "$PROMPT_B64" \
         "$(echo "$ARGS" | jq -r '.discussionNodeId')" \
         "$(echo "$ARGS" | jq -r '.replyToNodeId // ""')"
       ;;
@@ -385,23 +415,32 @@ build_remote_cmd() {
       # Specialised — runs the build script directly. The prompt isn't a
       # claude prompt for /build; it carries the {sha,target} the build
       # wrapper needs.
-      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-build %q %q %q\n' \
+      pr=$(echo "$ARGS" | jq -r '.prNumber')
+      target=$(echo "$ARGS" | jq -r '.buildTarget')
+      lock_key="${REPO_SLUG}__pr-${pr}-build-${target}"
+      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-lock %q n8n-agent-build %q %q %q\n' \
         "$REPO_FULL" \
-        "$(echo "$ARGS" | jq -r '.prNumber')" \
-        "$(echo "$ARGS" | jq -r '.buildTarget')" \
+        "$lock_key" \
+        "$pr" \
+        "$target" \
         "$(echo "$ARGS" | jq -r '.headSha')"
       ;;
     pr-merge)
-      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-merge %q %q %q %q\n' \
+      pr=$(echo "$ARGS" | jq -r '.prNumber')
+      lock_key="${REPO_SLUG}__pr-${pr}"
+      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-lock %q n8n-agent-merge %q %q %q %q\n' \
         "$REPO_FULL" \
-        "$(echo "$ARGS" | jq -r '.prNumber')" \
+        "$lock_key" \
+        "$pr" \
         "$(echo "$ARGS" | jq -r '.mergeMethod // "squash"')" \
         "$(echo "$ARGS" | jq -r '.prTitle')" \
         "$(default_for humanQa)"
       ;;
     release-merge)
-      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-release-bump %q\n' \
+      lock_key="${REPO_SLUG}__main-release"
+      printf 'set +e\neval "$(n8n-agent-prep %q)" || exit $?\nexec n8n-agent-lock %q n8n-agent-release-bump %q\n' \
         "$REPO_FULL" \
+        "$lock_key" \
         "$(echo "$ARGS" | jq -r '.bump // "patch"')"
       ;;
     *)

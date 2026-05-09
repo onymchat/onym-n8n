@@ -67,6 +67,7 @@ COPY bin/n8n-agent-react.sh        /usr/local/bin/n8n-agent-react
 COPY bin/n8n-agent-build.sh        /usr/local/bin/n8n-agent-build
 COPY bin/n8n-agent-merge.sh        /usr/local/bin/n8n-agent-merge
 COPY bin/n8n-agent-release-bump.sh /usr/local/bin/n8n-agent-release-bump
+COPY bin/n8n-agent-lock.sh         /usr/local/bin/n8n-agent-lock
 # Manager-only dispatcher. Present in every image so the same tag serves
 # both manager and employees — only ROLE=manager containers will ever
 # invoke it (it's what n8n's single SSH credential calls).
@@ -85,6 +86,7 @@ RUN chmod 0755 \
         /usr/local/bin/n8n-agent-build \
         /usr/local/bin/n8n-agent-merge \
         /usr/local/bin/n8n-agent-release-bump \
+        /usr/local/bin/n8n-agent-lock \
         /usr/local/bin/n8n-manager-dispatch
 
 EXPOSE 22
