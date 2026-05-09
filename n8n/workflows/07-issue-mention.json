@@ -104,6 +104,69 @@
       "typeVersion": 1,
       "position": [1080, 300],
       "credentials": { "sshPrivateKey": { "id": "REPLACE_ME", "name": "manager-agent SSH" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const stdout = $json.stdout || '';\nconst pick = (key) => { const m = stdout.match(new RegExp('^' + key + '=(.*)$', 'm')); return m ? m[1].trim() : ''; };\nreturn [{ json: { stdout, prUrl: pick('PR_URL'), skipped: pick('SKIPPED'), routeTarget: pick('ROUTE_TARGET') } }];\n"
+      },
+      "id": "a7000000-0000-0000-0000-000000000007",
+      "name": "Parse result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1280, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "b7000000-0000-0000-0000-000000000030",
+              "leftValue": "={{ $json.prUrl }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEquals" }
+            },
+            {
+              "id": "b7000000-0000-0000-0000-000000000031",
+              "leftValue": "={{ $json.skipped }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a7000000-0000-0000-0000-000000000008",
+      "name": "Has new PR?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $('Webhook').item.json.body.repository.full_name }}/issues/{{ $('Webhook').item.json.body.issue.number }}/comments",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/vnd.github+json" },
+            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"@{{ $json.routeTarget }} opened {{ $json.prUrl }} for this issue.\"\n}",
+        "options": { "response": { "response": { "fullResponse": true, "neverError": true } } }
+      },
+      "id": "a7000000-0000-0000-0000-000000000009",
+      "name": "Comment on issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, 300],
+      "credentials": { "githubApi": { "id": "REPLACE_ME", "name": "manager GitHub" } }
     }
   ],
   "connections": {
@@ -111,7 +174,10 @@
     "Is candidate?": { "main": [[{ "node": "Org membership", "type": "main", "index": 0 }], []] },
     "Org membership": { "main": [[{ "node": "Is org member?", "type": "main", "index": 0 }]] },
     "Is org member?": { "main": [[{ "node": "Build args", "type": "main", "index": 0 }], []] },
-    "Build args": { "main": [[{ "node": "Dispatch via manager", "type": "main", "index": 0 }]] }
+    "Build args": { "main": [[{ "node": "Dispatch via manager", "type": "main", "index": 0 }]] },
+    "Dispatch via manager": { "main": [[{ "node": "Parse result", "type": "main", "index": 0 }]] },
+    "Parse result": { "main": [[{ "node": "Has new PR?", "type": "main", "index": 0 }]] },
+    "Has new PR?": { "main": [[{ "node": "Comment on issue", "type": "main", "index": 0 }], []] }
   },
   "active": false,
   "settings": { "executionOrder": "v1" },
