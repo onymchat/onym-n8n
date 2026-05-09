@@ -70,7 +70,7 @@ echo "$PROMPT_B64" | base64 -d > "$PROMPT_FILE"
 echo "" >> "$PROMPT_FILE"
 echo "=== DIFF ===" >> "$PROMPT_FILE"
 git diff "origin/$BASE...HEAD" >> "$PROMPT_FILE"
-REVIEW=$(claude --print < "$PROMPT_FILE")
+REVIEW=$(claude --print --dangerously-skip-permissions < "$PROMPT_FILE")
 CLAUDE_RC=$?
 rm -f "$PROMPT_FILE"
 echo "CLAUDE_RC=$CLAUDE_RC"

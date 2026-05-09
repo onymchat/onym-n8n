@@ -76,7 +76,7 @@ cd "$WT_DIR" || { cleanup; exit 12; }
 
 CLAUDE_LOG="/tmp/claude-fix-$PR-$CID.log"
 echo "$PROMPT_B64" | base64 -d > "$PROMPT_FILE"
-claude --print < "$PROMPT_FILE" > "$CLAUDE_LOG" 2>&1
+claude --print --dangerously-skip-permissions < "$PROMPT_FILE" > "$CLAUDE_LOG" 2>&1
 CLAUDE_RC=$?
 rm -f "$PROMPT_FILE"
 echo "CLAUDE_RC=$CLAUDE_RC"
@@ -86,8 +86,23 @@ tail -n 40 "$CLAUDE_LOG" 2>/dev/null || true
 echo "__END__"
 rm -f "$CLAUDE_LOG"
 
+# Auto-commit any uncommitted edits. Without this, claude editing files
+# but skipping `git commit` looks indistinguishable from claude doing
+# nothing — both leave HEAD unchanged.
+DIRTY=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+if [ "${DIRTY:-0}" != "0" ]; then
+  echo "AUTO_COMMITTED=$DIRTY"
+  git add -A
+  git -c commit.gpgsign=false commit -m "address review comment $CID" >/dev/null 2>&1 || true
+fi
+
 if git diff --quiet "origin/$BRANCH..HEAD"; then
   echo "NO_CHANGES=1"
+  if [ "${DIRTY:-0}" != "0" ]; then
+    echo "ERROR: claude edited files but the auto-commit produced no diff" >&2
+  else
+    echo "ERROR: claude made no edits to the worktree" >&2
+  fi
   cleanup
   exit 0
 fi

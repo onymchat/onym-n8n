@@ -87,6 +87,18 @@ for c in $ALL_CONTAINERS; do
 done
 
 echo
+echo "== n8n-agent helpers =="
+# Catches the case where the image was rebuilt without picking up new
+# scripts, leaving employees with a stale set of /usr/local/bin entries.
+for c in $ALL_CONTAINERS; do
+    case "$c" in
+      onym-n8n|onym-caddy) continue ;;
+    esac
+    check "$c: n8n-agent-react installed" \
+        docker exec "$c" test -x /usr/local/bin/n8n-agent-react
+done
+
+echo
 echo "== manager dispatcher =="
 check "manager: dispatcher present" \
     docker exec onym-manager-agent test -x /usr/local/bin/n8n-manager-dispatch

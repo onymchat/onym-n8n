@@ -205,7 +205,7 @@ If unsure (confidence < 0.5), pick "$DEFAULT_IMPL".
 EOF
     )
   fi
-  CLAUDE_OUT=$(printf '%s' "$ROUTING_PROMPT" | claude --print 2>/dev/null)
+  CLAUDE_OUT=$(printf '%s' "$ROUTING_PROMPT" | claude --print --dangerously-skip-permissions 2>/dev/null)
   CLAUDE_RC=$?
   ROUTE_JSON=$(printf '%s\n' "$CLAUDE_OUT" | grep -Eo '\{[^{}]*"employee"[^{}]*\}' | head -1)
   if [ "$CLAUDE_RC" -eq 0 ] && [ -n "$ROUTE_JSON" ]; then
@@ -412,13 +412,33 @@ build_remote_cmd() {
 
 REMOTE_CMD=$(build_remote_cmd "$SURFACE")
 
+# Fire an :eyes: reaction on the triggering surface as the chosen
+# employee bot, before the (potentially slow) main work begins. The
+# script lives on the employee container and uses that container's
+# GITHUB_TOKEN, so the reaction shows up as e.g. @dev-onym, not as the
+# manager. Best-effort — failures here never block the main dispatch.
+SSH_OPTS=(-i "$SSH_KEY" -p "$EPORT"
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=accept-new
+  -o UserKnownHostsFile="$HOME/.ssh/manager-known-hosts")
+case "$SURFACE" in
+  release-merge|pr-build|pr-merge)
+    # Mechanical surfaces — no human comment to react to. Skip.
+    ;;
+  *)
+    REACT_CMD=$(printf 'n8n-agent-react eyes %q\n' "$ARGS_B64")
+    ssh "${SSH_OPTS[@]}" "$EUSER@$EHOST" "$REACT_CMD" >/dev/null 2>&1 &
+    ;;
+esac
+
 echo "--- BEGIN EMPLOYEE OUTPUT ---"
-ssh -i "$SSH_KEY" -p "$EPORT" \
-    -o BatchMode=yes \
-    -o StrictHostKeyChecking=accept-new \
-    -o UserKnownHostsFile="$HOME/.ssh/manager-known-hosts" \
-    "$EUSER@$EHOST" "$REMOTE_CMD"
+ssh "${SSH_OPTS[@]}" "$EUSER@$EHOST" "$REMOTE_CMD"
 EMP_RC=$?
 echo "--- END EMPLOYEE OUTPUT ---"
 echo "EMPLOYEE_RC=$EMP_RC"
+
+# Wait for the (typically already-finished) reaction SSH so we don't
+# leave a zombie if the parent process exits immediately.
+wait 2>/dev/null
+
 exit "$EMP_RC"

@@ -63,6 +63,7 @@ COPY bin/n8n-agent-address.sh      /usr/local/bin/n8n-agent-address
 COPY bin/n8n-agent-review.sh       /usr/local/bin/n8n-agent-review
 COPY bin/n8n-agent-prep.sh         /usr/local/bin/n8n-agent-prep
 COPY bin/n8n-agent-reply.sh        /usr/local/bin/n8n-agent-reply
+COPY bin/n8n-agent-react.sh        /usr/local/bin/n8n-agent-react
 COPY bin/n8n-agent-build.sh        /usr/local/bin/n8n-agent-build
 COPY bin/n8n-agent-merge.sh        /usr/local/bin/n8n-agent-merge
 COPY bin/n8n-agent-release-bump.sh /usr/local/bin/n8n-agent-release-bump
@@ -80,6 +81,7 @@ RUN chmod 0755 \
         /usr/local/bin/n8n-agent-review \
         /usr/local/bin/n8n-agent-prep \
         /usr/local/bin/n8n-agent-reply \
+        /usr/local/bin/n8n-agent-react \
         /usr/local/bin/n8n-agent-build \
         /usr/local/bin/n8n-agent-merge \
         /usr/local/bin/n8n-agent-release-bump \

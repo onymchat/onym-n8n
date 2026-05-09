@@ -86,7 +86,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "$PROMPT_B64" | base64 -d > "$PROMPT_FILE"
-claude --print < "$PROMPT_FILE" > "$REPLY_FILE" 2>"$CLAUDE_LOG"
+claude --print --dangerously-skip-permissions < "$PROMPT_FILE" > "$REPLY_FILE" 2>"$CLAUDE_LOG"
 CLAUDE_RC=$?
 echo "CLAUDE_RC=$CLAUDE_RC"
 echo "CLAUDE_LOG_BYTES=$(wc -c < "$CLAUDE_LOG" 2>/dev/null || echo 0)"

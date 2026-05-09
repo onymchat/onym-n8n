@@ -93,7 +93,7 @@ cd "$WT_DIR" || { cleanup; echo "PR_URL="; exit 12; }
 
 CLAUDE_LOG="/tmp/claude-issue-$ISSUE.log"
 echo "$PROMPT_B64" | base64 -d > "$PROMPT_FILE"
-claude --print < "$PROMPT_FILE" > "$CLAUDE_LOG" 2>&1
+claude --print --dangerously-skip-permissions < "$PROMPT_FILE" > "$CLAUDE_LOG" 2>&1
 CLAUDE_RC=$?
 rm -f "$PROMPT_FILE"
 echo "CLAUDE_RC=$CLAUDE_RC"
@@ -103,9 +103,26 @@ tail -n 40 "$CLAUDE_LOG" 2>/dev/null || true
 echo "__END__"
 rm -f "$CLAUDE_LOG"
 
+# Auto-commit any working-tree edits Claude left behind. Common failure
+# mode: claude prints a confident "I edited files X/Y/Z" summary but
+# forgot the final `git commit`, leaving HEAD == origin/main. We'd
+# rather salvage the work than throw it away.
+DIRTY=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+if [ "${DIRTY:-0}" != "0" ]; then
+  echo "AUTO_COMMITTED=$DIRTY"
+  git add -A
+  git -c commit.gpgsign=false commit -m "agent: implement issue #$ISSUE" >/dev/null 2>&1 || true
+fi
+
 if git diff --quiet origin/main..HEAD; then
   echo "PR_URL="
-  echo "ERROR: no changes produced by claude" >&2
+  if [ "${DIRTY:-0}" != "0" ]; then
+    # Edits existed but the commit landed empty — shouldn't happen, but
+    # surface it explicitly instead of conflating with the no-edits case.
+    echo "ERROR: claude edited files but the auto-commit produced no diff" >&2
+  else
+    echo "ERROR: claude made no edits to the worktree" >&2
+  fi
   cleanup
   exit 0
 fi
