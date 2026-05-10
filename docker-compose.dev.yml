@@ -76,8 +76,13 @@ services:
     container_name: onym-n8n
     hostname: n8n
     env_file:
+      # required: true — n8n.env carries N8N_ENCRYPTION_KEY. If it
+      # silently fails to load, n8n auto-generates a fresh key, which
+      # leaves every previously-stored credential undecryptable on next
+      # boot ("Credentials for 'GitHub API' are not set" at workflow
+      # runtime, even though the rows still exist in the DB). Fail fast.
       - path: ./n8n.env
-        required: false
+        required: true
     environment:
       # N8N_HOST + WEBHOOK_URL come from n8n.env (must match caddy.env's
       # N8N_PUBLIC_HOST). The values below are the protocol-level

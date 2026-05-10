@@ -121,6 +121,15 @@ done <<<"$EMPLOYEES"
 echo
 echo "== n8n health =="
 check "n8n /healthz (loopback)" curl -fsS http://127.0.0.1:5678/healthz
+# A live key that doesn't match n8n.env on disk means the next force-
+# recreate will load the file's value, fail to decrypt every existing
+# credential, and surface as "Credentials for 'GitHub API' are not
+# set" at workflow runtime. Catch it before that happens.
+check "n8n encryption key matches n8n.env" bash -c '
+    live=$(docker exec onym-n8n printenv N8N_ENCRYPTION_KEY 2>/dev/null | tr -d "\r\n")
+    file=$(awk -F= "/^N8N_ENCRYPTION_KEY=/{print \$2; exit}" n8n.env 2>/dev/null | tr -d "\r\n")
+    [ -n "$live" ] && [ -n "$file" ] && [ "$live" = "$file" ]
+'
 
 echo
 echo "== caddy → n8n =="
