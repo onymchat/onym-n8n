@@ -86,11 +86,21 @@ fi
 # runs on boots where the env var was dropped, as long as the file from
 # a prior boot is intact. `gh auth login --with-token` reads from stdin
 # — `--with-token` + setting GH_TOKEN env is a no-op gotcha that hangs.
+#
+# Strip GITHUB_TOKEN/GH_TOKEN for these gh invocations: when either is
+# set in the env, gh refuses to persist hosts.yml ("The value of the
+# GITHUB_TOKEN environment variable is being used for authentication.
+# To have GitHub CLI store credentials instead, first clear the value
+# from the environment.") and exits 1. Without this, an interactive ssh
+# session — which doesn't inherit env_file vars — sees an empty
+# hosts.yml and `gh auth status` reports "not logged in", even though
+# the token is valid and automation works.
 if [ -s "$HOME/.gh-token" ]; then
-    if ! gh auth login --with-token --hostname github.com < "$HOME/.gh-token"; then
+    if ! env -u GITHUB_TOKEN -u GH_TOKEN \
+           gh auth login --with-token --hostname github.com < "$HOME/.gh-token"; then
         echo "WARN: gh auth login failed — token may be invalid/expired" >&2
     fi
-    gh auth setup-git || true
+    env -u GITHUB_TOKEN -u GH_TOKEN gh auth setup-git || true
 fi
 
 # Claude Code: bypass all permission prompts. Each agent runs in its own
