@@ -47,7 +47,10 @@ done
 unset _var _val
 
 # Persist the bot's GitHub token for n8n-agent-prep / the manager
-# dispatcher to clone arbitrary repos on demand.
+# dispatcher to clone arbitrary repos on demand. ~/.gh-token is the
+# single source of truth from here on — env-var GITHUB_TOKEN may be
+# absent on later boots (env_file is `required: false`) but the volume-
+# backed file survives, so downstream scripts read from the file.
 if [ -n "${GITHUB_TOKEN:-}" ]; then
     umask 077
     printf '%s' "$GITHUB_TOKEN" > "$HOME/.gh-token"
@@ -55,19 +58,27 @@ fi
 
 # Optional: pin a single workspace clone for back-compat with the legacy
 # single-repo flow.
-if [ -n "${GITHUB_TOKEN:-}" ] && [ -n "${GITHUB_REPO:-}" ]; then
+if [ -s "$HOME/.gh-token" ] && [ -n "${GITHUB_REPO:-}" ]; then
+    TOKEN=$(cat "$HOME/.gh-token")
     if [ ! -d workspace/.git ]; then
-        git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" workspace
+        git clone "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPO}.git" workspace
     else
         git -C workspace remote set-url origin \
-            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
+            "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPO}.git"
     fi
+    unset TOKEN
 fi
 
-# gh auth + git credential helper so push/fetch don't require the token in URL.
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-    echo "$GITHUB_TOKEN" | gh auth login --with-token --hostname github.com 2>/dev/null || true
-    gh auth setup-git 2>/dev/null || true
+# gh auth + git credential helper so push/fetch don't require the token
+# in the URL. Read from ~/.gh-token (not $GITHUB_TOKEN) so this still
+# runs on boots where the env var was dropped, as long as the file from
+# a prior boot is intact. `gh auth login --with-token` reads from stdin
+# — `--with-token` + setting GH_TOKEN env is a no-op gotcha that hangs.
+if [ -s "$HOME/.gh-token" ]; then
+    if ! gh auth login --with-token --hostname github.com < "$HOME/.gh-token"; then
+        echo "WARN: gh auth login failed — token may be invalid/expired" >&2
+    fi
+    gh auth setup-git || true
 fi
 
 # Claude Code: bypass all permission prompts. Each agent runs in its own
