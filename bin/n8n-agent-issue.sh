@@ -147,10 +147,9 @@ fi
 
 if [ -n "$REVIEWER" ]; then
   GH_OUT=$(gh pr create --fill --base main --head "$BRANCH" \
-             --label ai-generated --reviewer "$REVIEWER" 2>&1)
+             --reviewer "$REVIEWER" 2>&1)
 else
-  GH_OUT=$(gh pr create --fill --base main --head "$BRANCH" \
-             --label ai-generated 2>&1)
+  GH_OUT=$(gh pr create --fill --base main --head "$BRANCH" 2>&1)
 fi
 GH_RC=$?
 echo "GH_RC=$GH_RC"
