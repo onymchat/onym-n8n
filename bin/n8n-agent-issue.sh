@@ -101,7 +101,8 @@ echo "CLAUDE_LOG_BYTES=$(wc -c < "$CLAUDE_LOG" 2>/dev/null || echo 0)"
 echo "CLAUDE_LOG_TAIL<<__END__"
 tail -n 40 "$CLAUDE_LOG" 2>/dev/null || true
 echo "__END__"
-rm -f "$CLAUDE_LOG"
+# (don't rm $CLAUDE_LOG yet — needed below for the conversational-reply
+# fallback when claude declines to make code changes)
 
 # Auto-commit any working-tree edits Claude left behind. Common failure
 # mode: claude prints a confident "I edited files X/Y/Z" summary but
@@ -120,12 +121,30 @@ if git diff --quiet origin/main..HEAD; then
     # Edits existed but the commit landed empty — shouldn't happen, but
     # surface it explicitly instead of conflating with the no-edits case.
     echo "ERROR: claude edited files but the auto-commit produced no diff" >&2
+  elif [ -s "$CLAUDE_LOG" ]; then
+    # Claude made no code changes — typically a conversational reply
+    # (pushback on the spec, clarifying question, declining to
+    # implement). Post it as a comment on the issue from the employee's
+    # own gh account so the human who summoned the bot sees the reply.
+    # Without this, the response vanished into the n8n execution log.
+    REPLY_OUT=$(gh issue comment "$ISSUE" --body-file "$CLAUDE_LOG" 2>&1)
+    REPLY_RC=$?
+    REPLY_URL=$(printf '%s\n' "$REPLY_OUT" | grep -Eo 'https://github.com/[^ ]+#issuecomment-[0-9]+' | tail -1)
+    echo "REPLY_RC=$REPLY_RC"
+    echo "REPLY_URL=$REPLY_URL"
+    if [ "$REPLY_RC" -ne 0 ]; then
+      echo "REPLY_ERR<<__END__" >&2
+      printf '%s\n' "$REPLY_OUT" >&2
+      echo "__END__" >&2
+    fi
   else
-    echo "ERROR: claude made no edits to the worktree" >&2
+    echo "ERROR: claude made no edits and produced no log" >&2
   fi
+  rm -f "$CLAUDE_LOG"
   cleanup
   exit 0
 fi
+rm -f "$CLAUDE_LOG"
 
 git push -u origin "$BRANCH" --force 2>&1
 PUSH_RC=$?

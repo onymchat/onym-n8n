@@ -84,7 +84,8 @@ echo "CLAUDE_LOG_BYTES=$(wc -c < "$CLAUDE_LOG" 2>/dev/null || echo 0)"
 echo "CLAUDE_LOG_TAIL<<__END__"
 tail -n 40 "$CLAUDE_LOG" 2>/dev/null || true
 echo "__END__"
-rm -f "$CLAUDE_LOG"
+# (don't rm $CLAUDE_LOG yet — needed below for the conversational-reply
+# fallback when claude declines to push code changes)
 
 # Auto-commit any uncommitted edits. Without this, claude editing files
 # but skipping `git commit` looks indistinguishable from claude doing
@@ -100,12 +101,29 @@ if git diff --quiet "origin/$BRANCH..HEAD"; then
   echo "NO_CHANGES=1"
   if [ "${DIRTY:-0}" != "0" ]; then
     echo "ERROR: claude edited files but the auto-commit produced no diff" >&2
+  elif [ -s "$CLAUDE_LOG" ]; then
+    # Claude made no code changes — typically a conversational reply
+    # (clarifying question, pushback on the review comment, etc.).
+    # Post it as a comment on the PR from the employee's own gh
+    # account so the reviewer sees the response.
+    REPLY_OUT=$(gh pr comment "$PR" --body-file "$CLAUDE_LOG" 2>&1)
+    REPLY_RC=$?
+    REPLY_URL=$(printf '%s\n' "$REPLY_OUT" | grep -Eo 'https://github.com/[^ ]+#issuecomment-[0-9]+' | tail -1)
+    echo "REPLY_RC=$REPLY_RC"
+    echo "REPLY_URL=$REPLY_URL"
+    if [ "$REPLY_RC" -ne 0 ]; then
+      echo "REPLY_ERR<<__END__" >&2
+      printf '%s\n' "$REPLY_OUT" >&2
+      echo "__END__" >&2
+    fi
   else
-    echo "ERROR: claude made no edits to the worktree" >&2
+    echo "ERROR: claude made no edits and produced no log" >&2
   fi
+  rm -f "$CLAUDE_LOG"
   cleanup
   exit 0
 fi
+rm -f "$CLAUDE_LOG"
 
 git push origin "HEAD:$BRANCH" 2>&1
 PUSH_RC=$?
