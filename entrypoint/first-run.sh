@@ -51,9 +51,21 @@ unset _var _val
 # single source of truth from here on — env-var GITHUB_TOKEN may be
 # absent on later boots (env_file is `required: false`) but the volume-
 # backed file survives, so downstream scripts read from the file.
+#
+# Compare-and-rewrite (instead of unconditional overwrite) so a rotated
+# token leaves an operator-visible breadcrumb in `docker logs`, and so
+# the no-change boot stays quiet. Without this, "I rotated the PAT but
+# auth still fails" is invisible: you can't tell from logs whether the
+# new token even reached the volume.
 if [ -n "${GITHUB_TOKEN:-}" ]; then
     umask 077
-    printf '%s' "$GITHUB_TOKEN" > "$HOME/.gh-token"
+    if [ ! -s "$HOME/.gh-token" ]; then
+        printf '%s' "$GITHUB_TOKEN" > "$HOME/.gh-token"
+        echo "first-run: ~/.gh-token initialized from env GITHUB_TOKEN"
+    elif [ "$GITHUB_TOKEN" != "$(cat "$HOME/.gh-token")" ]; then
+        printf '%s' "$GITHUB_TOKEN" > "$HOME/.gh-token"
+        echo "first-run: ~/.gh-token refreshed (env GITHUB_TOKEN changed)"
+    fi
 fi
 
 # Optional: pin a single workspace clone for back-compat with the legacy
